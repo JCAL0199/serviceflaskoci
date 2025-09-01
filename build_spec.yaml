@@ -1,0 +1,42 @@
+version: 0.1
+component: build
+timeoutInSeconds: 3600
+env:
+  variables:
+    REGION: us-chicago-1        # p.ej. eu-frankfurt-1
+    TENANCY_NS: axdmqzu3mcmn       # Namespace de OCIR
+    IMAGE_NAME: test-image-devops       # nombre del repo en OCIR
+    DOCKERFILE: Dockerfile
+  vaultVariables:
+    OCIR_USERNAME: ocid1.vaultsecret.oc1.us-chicago-1.amaaaaaaofdvj2yaokysw625p7nutuqyhham57tjhhbg4w4jgamygpimhzha   # usuario de OCIR (sin el namespace)
+    OCIR_PASSWORD: ocid1.vaultsecret.oc1.us-chicago-1.amaaaaaaofdvj2yakpjuceolygmop7aoq3roqbeu6arysltztdcmpgq7njcq   # auth token
+  exportedVariables:
+    - IMAGE_TAG
+    - IMAGE_URL
+steps:
+  - type: Command
+    name: "Calcular tag de imagen"
+    command: |
+      COMMIT_SHORT=$(echo "${OCI_PRIMARY_SOURCE_COMMIT_HASH:-${OCI_TRIGGER_COMMIT_HASH:-manual}}" | cut -c1-7)
+      IMAGE_TAG="${COMMIT_SHORT}-${OCI_BUILD_RUN_ID}"
+      echo "IMAGE_TAG=${IMAGE_TAG}" >> $OCI_WORKDIR/exported_variables
+
+  - type: Command
+    name: "Build de la imagen"
+    command: |
+      docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -f ${DOCKERFILE} .
+
+  - type: Command
+    name: "Login a OCIR, tag y push"
+    command: |
+      REGISTRY="ocir.${REGION}.oci.oraclecloud.com"
+      docker login ${REGISTRY} -u "${TENANCY_NS}/${OCIR_USERNAME}" -p "${OCIR_PASSWORD}"
+      IMAGE_URL="${REGISTRY}/${TENANCY_NS}/${IMAGE_NAME}:${IMAGE_TAG}"
+      docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_URL}
+      docker push ${IMAGE_URL}
+      echo "IMAGE_URL=${IMAGE_URL}" >> $OCI_WORKDIR/exported_variables
+
+outputArtifacts:
+  - name: app-image
+    type: DOCKER_IMAGE
+    location: ${IMAGE_URL}
